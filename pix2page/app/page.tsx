@@ -1,5 +1,6 @@
 "use client";
 
+import type { DragEvent, ChangeEvent } from "react";
 import { useState } from "react";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,18 +21,25 @@ const formSchema = z.object({
     docType: z.string(),
 });
 
+const BACKEND_URL = "https://<random-subdomain>.gradio.live";
+
 export default function Home() {
     const [file, setFile] = useState<File | null>(null);
     const [filePreview, setFilePreview] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [documentOutput, setDocumentOutput] = useState<File | null>(null);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent<HTMLDivElement>) => {
+    const handleFileChange = (e: ChangeEvent<HTMLInputElement> | DragEvent<HTMLDivElement>) => {
         let uploadedFile;
-        if (e.dataTransfer) {
-            uploadedFile = e.dataTransfer.files[0];
-        } else {
+
+        if (e instanceof DragEvent) {
+            uploadedFile = e.dataTransfer?.files[0];
+        }
+
+        if (e.target instanceof HTMLInputElement) {
             uploadedFile = e.target.files?.[0];
         }
+
         if (uploadedFile) {
             console.log(`Dragging a ${uploadedFile.type} file over...`);
 
@@ -63,16 +71,40 @@ export default function Home() {
     });
 
     // 2. Define a submit handler.
-    function onSubmit(data: z.infer<typeof formSchema>) {
+    async function onSubmit(values: z.infer<typeof formSchema>) {
         // Do something with the form values.
         // ✅ This will be type-safe and validated.
+        const data = {
+            ...values,
+            file: file?.type,
+        };
         toast("You submitted the following values:", {
             description: (
-                <pre className="mt-2 w-[340px] rounded-md bg-slate-950 p-4">
+                <pre className="mt-2 w-[324px] rounded-md bg-slate-950 p-4">
                     <code className="text-white">{JSON.stringify(data, null, 2)}</code>
                 </pre>
             ),
         });
+        // Send docType and file to back end
+        try {
+            const response = await fetch(BACKEND_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(data),
+            });
+
+            if (!response.ok) {
+                throw new Error("Document generation failed");
+            }
+
+            // You might want to set this in state or handle it accordingly
+            setDocumentOutput(await response.json());
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to generate document");
+        }
     }
 
     return (
@@ -163,6 +195,7 @@ export default function Home() {
                     </div>
                 )}
             </div>
+            {/* Get doc output and display it */}
             <div className="flex justify-center items-center h-full w-full rounded-lg border">Doc Output</div>
         </main>
     );
