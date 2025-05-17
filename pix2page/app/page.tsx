@@ -21,7 +21,16 @@ const formSchema = z.object({
     docType: z.string(),
 });
 
-const BACKEND_URL = "https://<random-subdomain>.gradio.live";
+const BACKEND_URL = "http://127.0.0.1:5000/process-image";
+
+// Helper function to encode a file into base64
+const toBase64 = (file: File) =>
+    new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+    });
 
 export default function Home() {
     const [file, setFile] = useState<File | null>(null);
@@ -72,34 +81,31 @@ export default function Home() {
 
     // 2. Define a submit handler.
     async function onSubmit(values: z.infer<typeof formSchema>) {
-        // Do something with the form values.
-        // ✅ This will be type-safe and validated.
-        const data = {
-            ...values,
-            file: file?.type,
-        };
+        console.log("File: ", await file?.arrayBuffer());
+        console.dir(values);
         toast("You submitted the following values:", {
             description: (
                 <pre className="mt-2 w-[324px] rounded-md bg-slate-950 p-4">
-                    <code className="text-white">{JSON.stringify(data, null, 2)}</code>
+                    <code className="text-white">{JSON.stringify(values, null, 2)}</code>
                 </pre>
             ),
         });
         // Send docType and file to back end
         try {
+            if (!file) throw new Error("Please upload a file");
+            const formData = new FormData();
+            formData.append("values", JSON.stringify(values));
+            formData.append("file", await toBase64(file));
+
             const response = await fetch(BACKEND_URL, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(data),
+                body: formData,
             });
 
             if (!response.ok) {
                 throw new Error("Document generation failed");
             }
 
-            // You might want to set this in state or handle it accordingly
             setDocumentOutput(await response.json());
         } catch (error) {
             console.error(error);
@@ -110,7 +116,7 @@ export default function Home() {
     return (
         <main className="grid grid-cols-2 items-center justify-items-center min-h-screen p-8 pb-20 gap-4 sm:p-20">
             <div className="flex gap-4 items-center flex-col h-full w-full">
-                <div className="flex justify-center items-center w-full h-1/3 border rounded-lg">
+                <div className="flex justify-center items-center w-full h-1/3 p-8 border rounded-lg">
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
                             <FormField
