@@ -1,7 +1,7 @@
 "use client";
 
 import type { DragEvent, ChangeEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -12,8 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { FilePlus2 } from "lucide-react";
+import { FilePlus2, LoaderIcon } from "lucide-react";
 import Image from "next/image";
+import mammoth from "mammoth";
 
 const acceptedFileTypes = ["image/jpeg", "image/png", "image/webp"];
 
@@ -23,20 +24,18 @@ const formSchema = z.object({
 
 const BACKEND_URL = "http://127.0.0.1:5000/process-image";
 
-// Helper function to encode a file into base64
-const toBase64 = (file: File) =>
-    new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-    });
-
 export default function Home() {
     const [file, setFile] = useState<File | null>(null);
     const [filePreview, setFilePreview] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [documentOutput, setDocumentOutput] = useState<File | null>(null);
+    const [docxFile, setDocxFile] = useState<{
+        blob: Blob;
+        url: string;
+        name: string;
+    } | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [HTMLContent, setHTMLContent] = useState<string>("");
+    const [mammothErrorMessage, setMammothErrorMessage] = useState<string>("");
 
     const handleFileChange = (e: ChangeEvent<HTMLInputElement> | DragEvent<HTMLDivElement>) => {
         let uploadedFile;
@@ -71,6 +70,40 @@ export default function Home() {
         }
     };
 
+    const convertToHtml = async (blob: Blob) => {
+        try {
+            // Convert blob to arrayBuffer
+            const arrayBuffer = await blob.arrayBuffer();
+
+            // Use mammoth to convert DOCX to HTML
+            const result = await mammoth.convertToHtml({ arrayBuffer });
+            setHTMLContent(result.value);
+        } catch (err) {
+            console.error("Error converting DOCX to HTML:", err);
+            setMammothErrorMessage("Failed to preview the document.");
+        }
+    };
+
+    // Clean up object URLs when component unmounts
+    useEffect(() => {
+        return () => {
+            if (docxFile?.url) {
+                URL.revokeObjectURL(docxFile.url);
+            }
+        };
+    }, [docxFile]);
+
+    const downloadFile = () => {
+        if (!docxFile) return;
+
+        const a = document.createElement("a");
+        a.href = docxFile.url;
+        a.download = docxFile.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+
     // 1. Define your form.
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -83,19 +116,16 @@ export default function Home() {
     async function onSubmit(values: z.infer<typeof formSchema>) {
         console.log("File: ", await file?.arrayBuffer());
         console.dir(values);
-        toast("You submitted the following values:", {
-            description: (
-                <pre className="mt-2 w-[324px] rounded-md bg-slate-950 p-4">
-                    <code className="text-white">{JSON.stringify(values, null, 2)}</code>
-                </pre>
-            ),
-        });
+        toast.info("Your conversion request is being processed");
         // Send docType and file to back end
+        setDocxFile(null);
+        setLoading(true);
+        setMammothErrorMessage("");
         try {
             if (!file) throw new Error("Please upload a file");
             const formData = new FormData();
             formData.append("values", JSON.stringify(values));
-            formData.append("file", await toBase64(file));
+            formData.append("image", file);
 
             const response = await fetch(BACKEND_URL, {
                 method: "POST",
@@ -106,10 +136,25 @@ export default function Home() {
                 throw new Error("Document generation failed");
             }
 
-            setDocumentOutput(await response.json());
+            const docxBlob = new Blob([await response.blob()], {
+                type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            });
+
+            const docxUrl = URL.createObjectURL(docxBlob);
+
+            setDocxFile({
+                blob: docxBlob,
+                url: docxUrl,
+                name: file.name.replace(/\.(jpg|jpeg|png)$/, ".docx"),
+            });
+
+            // Convert DOCX to HTML
+            convertToHtml(docxBlob);
         } catch (error) {
             console.error(error);
             toast.error("Failed to generate document");
+        } finally {
+            setLoading(false);
         }
     }
 
@@ -202,7 +247,42 @@ export default function Home() {
                 )}
             </div>
             {/* Get doc output and display it */}
-            <div className="flex justify-center items-center h-full w-full rounded-lg border">Doc Output</div>
+            <div className="flex flex-col justify-center items-center h-full w-full rounded-lg border">
+                {!loading && !docxFile && <div>Your resuling document will appear here!</div>}
+                {loading && (
+                    <div className="p-4 animate-spin">
+                        <LoaderIcon />
+                    </div>
+                )}
+                {mammothErrorMessage && (
+                    <div className="p-4 bg-red-100 text-red-700 rounded">{mammothErrorMessage}</div>
+                )}
+                {docxFile && (
+                    <div className="p-4">
+                        <div className="flex justify-between items-center">
+                            <p>Document: {docxFile.name}</p>
+                            <button
+                                onClick={downloadFile}
+                                className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
+                            >
+                                Download
+                            </button>
+                        </div>
+
+                        <div>
+                            <h3 className="font-bold mb-2">Preview:</h3>
+                            {HTMLContent ? (
+                                <div
+                                    className="docx-preview aspect-[17/22] w-[480px] p-12 border overflow-y-scroll"
+                                    dangerouslySetInnerHTML={{ __html: HTMLContent }}
+                                />
+                            ) : (
+                                <p>Loading preview...</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
         </main>
     );
 }
