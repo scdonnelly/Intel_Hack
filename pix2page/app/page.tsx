@@ -248,7 +248,7 @@ export default function Home() {
             </div>
             {/* Get doc output and display it */}
             <div className="flex flex-col justify-center items-center h-full w-full rounded-lg border">
-                {!loading && !docxFile && <div>Your resuling document will appear here!</div>}
+                {!loading && !docxFile && <div>Your resulting document will appear here!</div>}
                 {loading && (
                     <div className="p-4 animate-spin">
                         <LoaderIcon />
