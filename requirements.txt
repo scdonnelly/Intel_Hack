@@ -13,6 +13,7 @@ itsdangerous
 Jinja2
 jsonify
 kiwisolver
+lxml
 MarkupSafe
 matplotlib
 networkx
@@ -26,9 +27,11 @@ pillow
 pyparsing
 pytesseract
 python-dateutil
+python-docx
 PyYAML
 requests
 six
 tqdm
+typing_extensions
 urllib3
 Werkzeug
