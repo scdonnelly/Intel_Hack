@@ -5,8 +5,10 @@ import openvino as ov
 import os
 from pathlib import Path
 
+
 image_path = r"C:\Users\sara\Documents\Intel_Hack\test4.jpg"
 
+# Download the model from the OpenVINO Model Zoo if not already downloaded
 def download_file(
     url: str,
     filename: str = None,
@@ -21,6 +23,7 @@ def download_file(
     filename = filename or Path(urllib.parse.urlparse(url).path).name
     chunk_size = 16384  # make chunks bigger so that not too many updates are triggered for Jupyter front-end
 
+    # check if the filename is a valid file name
     filename = Path(filename)
     if len(filename.parts) > 1:
         raise ValueError(
@@ -28,7 +31,10 @@ def download_file(
             "Use the `directory` parameter to specify a target directory for the downloaded file."
         )
 
+    # check if the directory is a valid directory
     filepath = Path(directory) / filename if directory is not None else filename
+    
+    # check if the file already exists
     if filepath.exists():
         return filepath.resolve()
 
@@ -36,6 +42,7 @@ def download_file(
     if directory is not None:
         Path(directory).mkdir(parents=True, exist_ok=True)
 
+    # download the file
     try:
         response = requests.get(url=url, headers={"User-agent": "Mozilla/5.0"}, stream=True)
         response.raise_for_status()
@@ -51,41 +58,25 @@ def download_file(
     except requests.exceptions.RequestException as error:
         raise Exception(f"File downloading failed with error: {error}") from None
 
-    # download the file if it does not exist
-    filesize = int(response.headers.get("Content-length", 0))
-    if not filepath.exists():
-        with tqdm_notebook(
-            total=filesize,
-            unit="B",
-            unit_scale=True,
-            unit_divisor=1024,
-            desc=str(filename),
-            disable=not show_progress,
-        ) as progress_bar:
-            with open(filepath, "wb") as file_object:
-                for chunk in response.iter_content(chunk_size):
-                    file_object.write(chunk)
-                    progress_bar.update(len(chunk))
-                    progress_bar.refresh()
-    else:
-        print(f"'{filepath}' already exists.")
-
     response.close()
 
     return filepath.resolve()
 
 
 
-
+# Check if the model directory exists, if not create it
 base_model_dir = Path("./model").expanduser()
 
+# Define the model name and paths
 model_name = "horizontal-text-detection-0001"
 model_xml_name = f"{model_name}.xml"
 model_bin_name = f"{model_name}.bin"
 
+# Set the model paths
 model_xml_path = base_model_dir / model_xml_name
 model_bin_path = base_model_dir / model_bin_name
 
+# Check if the model files exist, if not download them
 if not model_xml_path.exists():
     model_xml_url = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.3/models_bin/1/horizontal-text-detection-0001/FP32/horizontal-text-detection-0001.xml"
     model_bin_url = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.3/models_bin/1/horizontal-text-detection-0001/FP32/horizontal-text-detection-0001.bin"
@@ -97,15 +88,16 @@ else:
 
     core = ov.Core()
 
+# Load the model
 model = core.read_model(model=model_xml_path)
 device = ov.Core().get_available_devices()[0]
 compiled_model = core.compile_model(model=model, device_name=device)
 
+# Get the input and output layers
 input_layer_ir = compiled_model.input(0)
 output_layer_ir = compiled_model.output("boxes")
 
 # Download the image from the openvino_notebooks storage
-
 image_filename = download_file(
     image_path, os.path.basename(image_path)
 )
@@ -130,14 +122,18 @@ boxes = compiled_model([input_image])[output_layer_ir]
 # Remove zero only boxes.
 boxes = boxes[~np.all(boxes == 0, axis=1)]
 
+# Get the number of boxes
 total_boxes = len(boxes)
 print("Total boxes: ", total_boxes)
+
+#Set the initial min and max values to the first box and i to 1
 i=1 
 min_x=boxes[0][0]
 max_x=boxes[0][2]
 min_y=boxes[0][1]
 max_y=boxes[0][3]
 
+# Loop through the boxes to find the min and max values
 while(i<total_boxes):
     if boxes[i][0] < min_x:
         min_x = boxes[i][0]
@@ -149,8 +145,10 @@ while(i<total_boxes):
         max_y = boxes[i][3]
     i+=1
 
+# Fing the original image dimensions
 original_height, original_width = image.shape[:2]
 
+# Calculate the width and height multipliers
 Width_multiplier = original_width/W
 Height_multiplier = original_height/H
 
@@ -176,11 +174,11 @@ for box in boxes:
     x_min, y_min, x_max, y_max = map(int, box[:4])  # Convert box coordinates to integers
     cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)  # Green box with thickness 2
 
-
+'''
 # Display the image with bounding boxes
 plt.figure(figsize=(10, 6))
 plt.axis("off")
 plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for Matplotlib
 plt.show()
-
+'''
 
